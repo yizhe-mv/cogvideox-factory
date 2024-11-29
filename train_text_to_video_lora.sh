@@ -8,7 +8,7 @@ GPU_IDS="0"
 
 # Training Configurations
 # Experiment with as many hyperparameters as you want!
-LEARNING_RATES=("1e-4" "1e-3")
+LEARNING_RATES=("1e-4")
 LR_SCHEDULES=("cosine_with_restarts")
 OPTIMIZERS=("adamw" "adam")
 MAX_TRAIN_STEPS=("3000")
@@ -19,7 +19,7 @@ ACCELERATE_CONFIG_FILE="accelerate_configs/uncompiled_1.yaml"
 # Absolute path to where the data is located. Make sure to have read the README for how to prepare data.
 # This example assumes you downloaded an already prepared dataset from HF CLI as follows:
 #   huggingface-cli download --repo-type dataset Wild-Heart/Disney-VideoGeneration-Dataset --local-dir /path/to/my/datasets/disney-dataset
-DATA_ROOT="/path/to/my/datasets/disney-dataset"
+DATA_ROOT="video-dataset-disney"
 
 CAPTION_COLUMN="prompt.txt"
 VIDEO_COLUMN="videos.txt"
