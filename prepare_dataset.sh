@@ -1,14 +1,14 @@
 #!/bin/bash
 
-MODEL_ID="THUDM/CogVideoX-2b"
+MODEL_ID="THUDM/CogVideoX-5b"
 
-NUM_GPUS=8
+NUM_GPUS=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
 
 # For more details on the expected data format, please refer to the README.
-DATA_ROOT="/path/to/my/datasets/video-dataset"  # This needs to be the path to the base directory where your videos are located.
+DATA_ROOT="./video-dataset-disney"  # This needs to be the path to the base directory where your videos are located.
 CAPTION_COLUMN="prompt.txt"
 VIDEO_COLUMN="videos.txt"
-OUTPUT_DIR="/path/to/my/datasets/preprocessed-dataset"
+OUTPUT_DIR="./video-dataset-disney-preprocessed"
 HEIGHT_BUCKETS="480 720"
 WIDTH_BUCKETS="720 960"
 FRAME_BUCKETS="49"

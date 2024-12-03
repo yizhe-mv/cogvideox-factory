@@ -19,9 +19,9 @@ ACCELERATE_CONFIG_FILE="accelerate_configs/uncompiled_1.yaml"
 # Absolute path to where the data is located. Make sure to have read the README for how to prepare data.
 # This example assumes you downloaded an already prepared dataset from HF CLI as follows:
 #   huggingface-cli download --repo-type dataset Wild-Heart/Disney-VideoGeneration-Dataset --local-dir /path/to/my/datasets/disney-dataset
-DATA_ROOT="video-dataset-disney"
+DATA_ROOT="video-dataset-disney-preprocessed"
 
-CAPTION_COLUMN="prompt.txt"
+CAPTION_COLUMN="prompts.txt"
 VIDEO_COLUMN="videos.txt"
 MODEL_PATH="THUDM/CogVideoX-5b"
 
