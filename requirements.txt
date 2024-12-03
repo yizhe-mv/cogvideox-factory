@@ -1,6 +1,6 @@
-accelerate
+accelerate>=1.1.1
 bitsandbytes
-diffusers>=0.30.3
+diffusers>=0.31.0
 transformers>=4.45.2
 huggingface_hub
 hf_transfer>=0.1.8
