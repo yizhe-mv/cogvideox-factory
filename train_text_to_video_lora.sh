@@ -4,7 +4,7 @@ export WANDB_MODE="offline"
 export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
 
-GPU_IDS="0"
+GPU_IDS="0,1"
 
 # Training Configurations
 # Experiment with as many hyperparameters as you want!
@@ -14,7 +14,7 @@ OPTIMIZERS=("adamw") # ("adamw" "adam")
 MAX_TRAIN_STEPS=("3000")
 
 # Single GPU uncompiled training
-ACCELERATE_CONFIG_FILE="accelerate_configs/uncompiled_1.yaml"
+ACCELERATE_CONFIG_FILE="accelerate_configs/deepspeed.yaml"
 
 # Absolute path to where the data is located. Make sure to have read the README for how to prepare data.
 # This example assumes you downloaded an already prepared dataset from HF CLI as follows:

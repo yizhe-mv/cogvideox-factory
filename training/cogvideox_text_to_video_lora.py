@@ -53,7 +53,11 @@ from transformers import AutoTokenizer, T5EncoderModel
 
 
 from args import get_args  # isort:skip
-from dataset import BucketSampler, VideoDatasetWithResizing, VideoDatasetWithResizeAndRectangleCrop  # isort:skip
+from dataset import (
+    BucketSampler,
+    VideoDatasetWithResizing,
+    VideoDatasetWithResizeAndRectangleCrop,
+)  # isort:skip
 from text_encoder import compute_prompt_embeddings  # isort:skip
 from utils import (
     get_gradient_norm,
@@ -79,7 +83,9 @@ def save_model_card(
     widget_dict = []
     if videos is not None:
         for i, video in enumerate(videos):
-            export_to_video(video, os.path.join(repo_folder, f"final_video_{i}.mp4", fps=fps))
+            export_to_video(
+                video, os.path.join(repo_folder, f"final_video_{i}.mp4", fps=fps)
+            )
             widget_dict.append(
                 {
                     "text": validation_prompt if validation_prompt else " ",
@@ -168,7 +174,11 @@ def log_validation(
     pipe = pipe.to(accelerator.device)
 
     # run inference
-    generator = torch.Generator(device=accelerator.device).manual_seed(args.seed) if args.seed else None
+    generator = (
+        torch.Generator(device=accelerator.device).manual_seed(args.seed)
+        if args.seed
+        else None
+    )
 
     videos = []
     for _ in range(args.num_validation_videos):
@@ -188,7 +198,9 @@ def log_validation(
                     .replace('"', "_")
                     .replace("/", "_")
                 )
-                filename = os.path.join(args.output_dir, f"{phase_name}_video_{i}_{prompt}.mp4")
+                filename = os.path.join(
+                    args.output_dir, f"{phase_name}_video_{i}_{prompt}.mp4"
+                )
                 export_to_video(video, filename, fps=8)
                 video_filenames.append(filename)
 
@@ -213,7 +225,9 @@ class CollateFunction:
         prompts = [x["prompt"] for x in data[0]]
 
         if self.load_tensors:
-            prompts = torch.stack(prompts).to(dtype=self.weight_dtype, non_blocking=True)
+            prompts = torch.stack(prompts).to(
+                dtype=self.weight_dtype, non_blocking=True
+            )
 
         videos = [x["video"] for x in data[0]]
         videos = torch.stack(videos).to(dtype=self.weight_dtype, non_blocking=True)
@@ -239,9 +253,13 @@ def main(args):
 
     logging_dir = Path(args.output_dir, args.logging_dir)
 
-    accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
+    accelerator_project_config = ProjectConfiguration(
+        project_dir=args.output_dir, logging_dir=logging_dir
+    )
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-    init_process_group_kwargs = InitProcessGroupKwargs(backend="nccl", timeout=timedelta(seconds=args.nccl_timeout))
+    init_process_group_kwargs = InitProcessGroupKwargs(
+        backend="nccl", timeout=timedelta(seconds=args.nccl_timeout)
+    )
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
@@ -298,7 +316,11 @@ def main(args):
 
     # CogVideoX-2b weights are stored in float16
     # CogVideoX-5b and CogVideoX-5b-I2V weights are stored in bfloat16
-    load_dtype = torch.bfloat16 if "5b" in args.pretrained_model_name_or_path.lower() else torch.float16
+    load_dtype = (
+        torch.bfloat16
+        if "5b" in args.pretrained_model_name_or_path.lower()
+        else torch.float16
+    )
     transformer = CogVideoXTransformer3DModel.from_pretrained(
         args.pretrained_model_name_or_path,
         subfolder="transformer",
@@ -314,7 +336,9 @@ def main(args):
         variant=args.variant,
     )
 
-    scheduler = CogVideoXDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+    scheduler = CogVideoXDPMScheduler.from_pretrained(
+        args.pretrained_model_name_or_path, subfolder="scheduler"
+    )
 
     if args.enable_slicing:
         vae.enable_slicing()
@@ -380,7 +404,10 @@ def main(args):
             transformer_lora_layers_to_save = None
 
             for model in models:
-                if isinstance(unwrap_model(accelerator, model), type(unwrap_model(accelerator, transformer))):
+                if isinstance(
+                    unwrap_model(accelerator, model),
+                    type(unwrap_model(accelerator, transformer)),
+                ):
                     model = unwrap_model(accelerator, model)
                     transformer_lora_layers_to_save = get_peft_model_state_dict(model)
                 else:
@@ -403,10 +430,15 @@ def main(args):
             while len(models) > 0:
                 model = models.pop()
 
-                if isinstance(unwrap_model(accelerator, model), type(unwrap_model(accelerator, transformer))):
+                if isinstance(
+                    unwrap_model(accelerator, model),
+                    type(unwrap_model(accelerator, transformer)),
+                ):
                     transformer_ = unwrap_model(accelerator, model)
                 else:
-                    raise ValueError(f"Unexpected save model: {unwrap_model(accelerator, model).__class__}")
+                    raise ValueError(
+                        f"Unexpected save model: {unwrap_model(accelerator, model).__class__}"
+                    )
         else:
             transformer_ = CogVideoXTransformer3DModel.from_pretrained(
                 args.pretrained_model_name_or_path, subfolder="transformer"
@@ -416,10 +448,14 @@ def main(args):
         lora_state_dict = CogVideoXPipeline.lora_state_dict(input_dir)
 
         transformer_state_dict = {
-            f'{k.replace("transformer.", "")}': v for k, v in lora_state_dict.items() if k.startswith("transformer.")
+            f'{k.replace("transformer.", "")}': v
+            for k, v in lora_state_dict.items()
+            if k.startswith("transformer.")
         }
         transformer_state_dict = convert_unet_state_dict_to_peft(transformer_state_dict)
-        incompatible_keys = set_peft_model_state_dict(transformer_, transformer_state_dict, adapter_name="default")
+        incompatible_keys = set_peft_model_state_dict(
+            transformer_, transformer_state_dict, adapter_name="default"
+        )
         if incompatible_keys is not None:
             # check only for unexpected keys
             unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
@@ -446,7 +482,10 @@ def main(args):
 
     if args.scale_lr:
         args.learning_rate = (
-            args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+            args.learning_rate
+            * args.gradient_accumulation_steps
+            * args.train_batch_size
+            * accelerator.num_processes
         )
 
     # Make sure the trainable params are in float32.
@@ -454,7 +493,9 @@ def main(args):
         # only upcast trainable parameters (LoRA) into fp32
         cast_training_params([transformer], dtype=torch.float32)
 
-    transformer_lora_parameters = list(filter(lambda p: p.requires_grad, transformer.parameters()))
+    transformer_lora_parameters = list(
+        filter(lambda p: p.requires_grad, transformer.parameters())
+    )
 
     # Optimization parameters
     transformer_parameters_with_lr = {
@@ -462,7 +503,9 @@ def main(args):
         "lr": args.learning_rate,
     }
     params_to_optimize = [transformer_parameters_with_lr]
-    num_trainable_parameters = sum(param.numel() for model in params_to_optimize for param in model["params"])
+    num_trainable_parameters = sum(
+        param.numel() for model in params_to_optimize for param in model["params"]
+    )
 
     use_deepspeed_optimizer = (
         accelerator.state.deepspeed_plugin is not None
@@ -519,7 +562,9 @@ def main(args):
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=1,
-        sampler=BucketSampler(train_dataset, batch_size=args.train_batch_size, shuffle=True),
+        sampler=BucketSampler(
+            train_dataset, batch_size=args.train_batch_size, shuffle=True
+        ),
         collate_fn=collate_fn,
         num_workers=args.dataloader_num_workers,
         pin_memory=args.pin_memory,
@@ -527,7 +572,9 @@ def main(args):
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
@@ -564,7 +611,9 @@ def main(args):
     )
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
@@ -572,7 +621,10 @@ def main(args):
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
-    if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
+    if (
+        accelerator.distributed_type == DistributedType.DEEPSPEED
+        or accelerator.is_main_process
+    ):
         tracker_name = args.tracker_name or "cogvideox-lora"
         accelerator.init_trackers(tracker_name, config=vars(args))
 
@@ -581,16 +633,26 @@ def main(args):
         print_memory(accelerator.device)
 
     # Train!
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = (
+        args.train_batch_size
+        * accelerator.num_processes
+        * args.gradient_accumulation_steps
+    )
 
     accelerator.print("***** Running training *****")
     accelerator.print(f"  Num trainable parameters = {num_trainable_parameters}")
     accelerator.print(f"  Num examples = {len(train_dataset)}")
     accelerator.print(f"  Num batches each epoch = {len(train_dataloader)}")
     accelerator.print(f"  Num epochs = {args.num_train_epochs}")
-    accelerator.print(f"  Instantaneous batch size per device = {args.train_batch_size}")
-    accelerator.print(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-    accelerator.print(f"  Gradient accumulation steps = {args.gradient_accumulation_steps}")
+    accelerator.print(
+        f"  Instantaneous batch size per device = {args.train_batch_size}"
+    )
+    accelerator.print(
+        f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}"
+    )
+    accelerator.print(
+        f"  Gradient accumulation steps = {args.gradient_accumulation_steps}"
+    )
     accelerator.print(f"  Total optimization steps = {args.max_train_steps}")
     global_step = 0
     first_epoch = 0
@@ -631,7 +693,11 @@ def main(args):
     )
 
     # For DeepSpeed training
-    model_config = transformer.module.config if hasattr(transformer, "module") else transformer.config
+    model_config = (
+        transformer.module.config
+        if hasattr(transformer, "module")
+        else transformer.config
+    )
 
     if args.load_tensors:
         del vae, text_encoder
@@ -639,7 +705,9 @@ def main(args):
         torch.cuda.empty_cache()
         torch.cuda.synchronize(accelerator.device)
 
-    alphas_cumprod = scheduler.alphas_cumprod.to(accelerator.device, dtype=torch.float32)
+    alphas_cumprod = scheduler.alphas_cumprod.to(
+        accelerator.device, dtype=torch.float32
+    )
 
     for epoch in range(first_epoch, args.num_train_epochs):
         transformer.train()
@@ -661,7 +729,9 @@ def main(args):
 
                 videos = latent_dist.sample() * VAE_SCALING_FACTOR
                 videos = videos.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
-                videos = videos.to(memory_format=torch.contiguous_format, dtype=weight_dtype)
+                videos = videos.to(
+                    memory_format=torch.contiguous_format, dtype=weight_dtype
+                )
                 model_input = videos
 
                 # Encode prompts
@@ -699,7 +769,11 @@ def main(args):
                         num_frames=num_frames,
                         vae_scale_factor_spatial=VAE_SCALE_FACTOR_SPATIAL,
                         patch_size=model_config.patch_size,
-                        patch_size_t=model_config.patch_size_t if hasattr(model_config, "patch_size_t") else None,
+                        patch_size_t=(
+                            model_config.patch_size_t
+                            if hasattr(model_config, "patch_size_t")
+                            else None
+                        ),
                         attention_head_dim=model_config.attention_head_dim,
                         device=accelerator.device,
                         base_height=RoPE_BASE_HEIGHT,
@@ -722,7 +796,9 @@ def main(args):
                     return_dict=False,
                 )[0]
 
-                model_pred = scheduler.get_velocity(model_output, noisy_model_input, timesteps)
+                model_pred = scheduler.get_velocity(
+                    model_output, noisy_model_input, timesteps
+                )
 
                 weights = 1 / (1 - alphas_cumprod[timesteps])
                 while len(weights.shape) < len(model_pred.shape):
@@ -737,10 +813,19 @@ def main(args):
                 loss = loss.mean()
                 accelerator.backward(loss)
 
-                if accelerator.sync_gradients and accelerator.distributed_type != DistributedType.DEEPSPEED:
-                    gradient_norm_before_clip = get_gradient_norm(transformer.parameters())
-                    accelerator.clip_grad_norm_(transformer.parameters(), args.max_grad_norm)
-                    gradient_norm_after_clip = get_gradient_norm(transformer.parameters())
+                if (
+                    accelerator.sync_gradients
+                    and accelerator.distributed_type != DistributedType.DEEPSPEED
+                ):
+                    gradient_norm_before_clip = get_gradient_norm(
+                        transformer.parameters()
+                    )
+                    accelerator.clip_grad_norm_(
+                        transformer.parameters(), args.max_grad_norm
+                    )
+                    gradient_norm_after_clip = get_gradient_norm(
+                        transformer.parameters()
+                    )
                     logs.update(
                         {
                             "gradient_norm_before_clip": gradient_norm_before_clip,
@@ -760,33 +845,52 @@ def main(args):
                 progress_bar.update(1)
                 global_step += 1
 
-                if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
+                if (
+                    accelerator.distributed_type == DistributedType.DEEPSPEED
+                    or accelerator.is_main_process
+                ):
                     if global_step % args.checkpointing_steps == 0:
                         # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                         if args.checkpoints_total_limit is not None:
                             checkpoints = os.listdir(args.output_dir)
-                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+                            checkpoints = [
+                                d for d in checkpoints if d.startswith("checkpoint")
+                            ]
+                            checkpoints = sorted(
+                                checkpoints, key=lambda x: int(x.split("-")[1])
+                            )
 
                             # before we save the new checkpoint, we need to have at _most_ `checkpoints_total_limit - 1` checkpoints
                             if len(checkpoints) >= args.checkpoints_total_limit:
-                                num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                                num_to_remove = (
+                                    len(checkpoints) - args.checkpoints_total_limit + 1
+                                )
                                 removing_checkpoints = checkpoints[0:num_to_remove]
 
                                 logger.info(
                                     f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
                                 )
-                                logger.info(f"Removing checkpoints: {', '.join(removing_checkpoints)}")
+                                logger.info(
+                                    f"Removing checkpoints: {', '.join(removing_checkpoints)}"
+                                )
 
                                 for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                                    removing_checkpoint = os.path.join(
+                                        args.output_dir, removing_checkpoint
+                                    )
                                     shutil.rmtree(removing_checkpoint)
 
-                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                        save_path = os.path.join(
+                            args.output_dir, f"checkpoint-{global_step}"
+                        )
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
-            last_lr = lr_scheduler.get_last_lr()[0] if lr_scheduler is not None else args.learning_rate
+            last_lr = (
+                lr_scheduler.get_last_lr()[0]
+                if lr_scheduler is not None
+                else args.learning_rate
+            )
             logs.update(
                 {
                     "loss": loss.detach().item(),
@@ -800,7 +904,10 @@ def main(args):
                 break
 
         if accelerator.is_main_process:
-            if args.validation_prompt is not None and (epoch + 1) % args.validation_epochs == 0:
+            if (
+                args.validation_prompt is not None
+                and (epoch + 1) % args.validation_epochs == 0
+            ):
                 accelerator.print("===== Memory before validation =====")
                 print_memory(accelerator.device)
                 torch.cuda.synchronize(accelerator.device)
@@ -821,7 +928,9 @@ def main(args):
                 if args.enable_model_cpu_offload:
                     pipe.enable_model_cpu_offload()
 
-                validation_prompts = args.validation_prompt.split(args.validation_prompt_separator)
+                validation_prompts = args.validation_prompt.split(
+                    args.validation_prompt_separator
+                )
                 for validation_prompt in validation_prompts:
                     pipeline_args = {
                         "prompt": validation_prompt,
@@ -856,9 +965,7 @@ def main(args):
         dtype = (
             torch.float16
             if args.mixed_precision == "fp16"
-            else torch.bfloat16
-            if args.mixed_precision == "bf16"
-            else torch.float32
+            else torch.bfloat16 if args.mixed_precision == "bf16" else torch.float32
         )
         transformer = transformer.to(dtype)
         transformer_lora_layers = get_peft_model_state_dict(transformer)
@@ -906,7 +1013,9 @@ def main(args):
         # Run inference
         validation_outputs = []
         if args.validation_prompt and args.num_validation_videos > 0:
-            validation_prompts = args.validation_prompt.split(args.validation_prompt_separator)
+            validation_prompts = args.validation_prompt.split(
+                args.validation_prompt_separator
+            )
             for validation_prompt in validation_prompts:
                 pipeline_args = {
                     "prompt": validation_prompt,
