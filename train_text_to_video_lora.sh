@@ -3,8 +3,9 @@ export TORCHDYNAMO_VERBOSE=1
 export WANDB_MODE="offline"
 export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
+export TOKENIZERS_PARALLELISM=false
 
-GPU_IDS="0,1"
+#GPU_IDS="0,1" set the gpu in deepspeed.yaml instead
 
 # Training Configurations
 # Experiment with as many hyperparameters as you want!
@@ -34,7 +35,7 @@ for learning_rate in "${LEARNING_RATES[@]}"; do
       for steps in "${MAX_TRAIN_STEPS[@]}"; do
         output_dir="./cogvideox-lora__optimizer_${optimizer}__steps_${steps}__lr-schedule_${lr_schedule}__learning-rate_${learning_rate}/"
 
-        cmd="accelerate launch --config_file $ACCELERATE_CONFIG_FILE --gpu_ids $GPU_IDS training/cogvideox_text_to_video_lora.py \
+        cmd="accelerate launch --config_file $ACCELERATE_CONFIG_FILE training/cogvideox_text_to_video_lora.py \
           --pretrained_model_name_or_path $MODEL_PATH \
           --data_root $DATA_ROOT \
           --caption_column $CAPTION_COLUMN \
@@ -85,3 +86,4 @@ done
 # --load_tensors \ compute the tensors on the fly
 # --enable_slicing \  reduce the memory but increase the time
 # --enable_tiling \  reduce the memory but increase the time
+# --gpu_ids $GPU_IDS

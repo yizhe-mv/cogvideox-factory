@@ -1,30 +1,23 @@
 #! /bin/bash
 pip install -r requirements.txt 
 
-
+pip uninstall apex
+pip uninstall flash-attn
 cd ../ && pip install flash-attn --no-build-isolation && cd cogvideox_factory
-# pip uninstall apex
-# pip install -v \
-#     --disable-pip-version-check \
-#     --no-cache-dir \
-#     --no-build-isolation \
-#     --config-settings "--build-option=--cpp_ext" \
-#     --config-settings "--build-option=--cuda_ext" \
-#     git+https://github.com/NVIDIA/apex.git
 
 pip3 install -U xformers==0.0.28 --index-url https://download.pytorch.org/whl/cu121
 
 # git clone https://github.com/huggingface/diffusers.git
 # pip install -e ./diffusers
 
-
-
 # download or copy the model from huggingface to the model folder
+echo "Copying CogVideoX-5B model to the model folder"
+mkdir -p ~/.cache/huggingface/hub/
 cp -r /data/local-node/mnt/mofs/users/yizhe/huggingface/models--THUDM--CogVideoX-5b ~/.cache/huggingface/hub/
 
 # Optional: install `huggingface_hub` && download toy dataset
-huggingface-cli download \
-  --repo-type dataset Wild-Heart/Disney-VideoGeneration-Dataset \
-  --local-dir video-dataset-disneyY
+# huggingface-cli download \
+#   --repo-type dataset Wild-Heart/Disney-VideoGeneration-Dataset \
+#   --local-dir video-dataset-disneyY
 
-bash prepare_dataset.sh
+# bash prepare_dataset.sh
