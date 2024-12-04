@@ -4,7 +4,7 @@ Run this test in Lora adpater checking:
 ```shell
 python3 test_lora_inference.py --prompt "A girl is ridding a bike." --model_path "THUDM/CogVideoX-5b" --lora_path "path/to/lora" --lora_name "lora_adapter" --output_file "output.mp4" --fps 8
 ```
-python3 tests/test_lora_inference.py --prompt "A girl is ridding a bike." --model_path "THUDM/CogVideoX-5b" --lora_path "./cogvideox-lora__optimizer_adamw__steps_3000__lr-schedule_cosine_with_restarts__learning-rate_1e-4/checkpoint-3000" --lora_name "lora_adapter" --output_file "output.mp4" --fps 8
+python3 tests/test_lora_inference.py --prompt "BW_STYLE A girl is ridding a bike." --model_path "THUDM/CogVideoX-5b" --lora_path "./cogvideox-lora__optimizer_adamw__steps_3000__lr-schedule_cosine_with_restarts__learning-rate_1e-4/checkpoint-3000" --lora_name "lora_adapter" --output_file "output.mp4" --fps 8
 
 """
 
