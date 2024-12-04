@@ -68,6 +68,7 @@ from utils import (
     unwrap_model,
 )  # isort:skip
 
+from IPython import embed
 
 logger = get_logger(__name__)
 
@@ -507,6 +508,7 @@ def main(args):
         param.numel() for model in params_to_optimize for param in model["params"]
     )
 
+    # False and False for now
     use_deepspeed_optimizer = (
         accelerator.state.deepspeed_plugin is not None
         and "optimizer" in accelerator.state.deepspeed_plugin.deepspeed_config
