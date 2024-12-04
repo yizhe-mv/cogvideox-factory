@@ -9,10 +9,19 @@ decord>=0.6.0
 wandb
 pandas
 torch>=2.4.1,<2.5.0
-torchvision<0.20.0
+torchvision>=0.19.1,<0.20.0
 torchao>=0.5.0
 sentencepiece>=0.2.0
 imageio-ffmpeg>=0.5.1
 numpy>=1.26.4
 opencv-python
 
+# open_sora dataset
+datadog # need?
+ddtrace # need? 
+mmengine>=0.10.3
+omegaconf
+pandarallel>=1.6.5
+pyarrow>=16.1.0 # for parquet
+dask>=2024.9.1 # for sharded metadata
+dotted-dict
