@@ -1,4 +1,5 @@
 #! /bin/bash
+cd ../ && pip install -e open_sora && cd cogvideox_factory
 pip install -r requirements.txt 
 
 pip uninstall apex

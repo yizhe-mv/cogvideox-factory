@@ -61,9 +61,6 @@ from dataset import (
 
 import sys
 
-sys.path.append("/workspace/open_sora")
-from opensora.datasets.bucket import Bucket
-from opensora.datasets.dataloader import prepare_dataloader
 
 from text_encoder import compute_prompt_embeddings  # isort:skip
 from utils import (
@@ -78,6 +75,12 @@ from utils import (
 from IPython import embed
 
 logger = get_logger(__name__)
+
+from pympler import asizeof
+
+
+def get_size(obj):
+    return asizeof.asizeof(obj) / (2**30)  # in GB
 
 
 def save_model_card(
@@ -310,8 +313,10 @@ def main(args):
             ).repo_id
 
     # ======================================================
-    # 4. build dataset and dataloader
+    # build dataset and dataloader from opensora
     # ======================================================
+    from opensora.datasets.bucket import Bucket
+    from opensora.datasets.dataloader import prepare_dataloader
     from opensora.utils.ckpt_utils import ping_liveness_probe
     import opensora.utils.config_utils as cfg_utils
     from opensora.registry import DATASETS, build_module
@@ -319,18 +324,22 @@ def main(args):
 
     to_container = cfg_utils.to_container
     from omegaconf import OmegaConf
-    from dictdotted import DictDotted
+    from dotted_dict import DottedDict
 
-    cfg = DictDotted()
-    cfg.dataset = OmegaConf.load("./open_sora/configs/model/dataset/datasets_v1.yaml")
+    cfg = DottedDict()
+    cfg.dataset = OmegaConf.load("./configs/model/dataset/datasets_v1.yaml")
     cfg.train_subsets = ["custom18M"]
+    cfg.bucket_randomize_n_frames = True
+    cfg.bucket_config = OmegaConf.load("./configs/model/marey.yaml")["bucket_config"]
+    cfg.sampler = OmegaConf.load("./configs/base.yaml")["sampler"]
+    cfg.debug = False
+
     num_seq_parallel_splits = cfg.get("num_seq_parallel_splits", 1)
-    embed()
 
     logger.info("Building dataset...")
     # == build dataset ==
     dataset_cfg = cfg_utils.subset_dataset(cfg.dataset, *cfg.train_subsets)
-    dataset_cfg["extra_features"] = cfg.model.get("extra_features_embedders", None)
+    dataset_cfg["extra_features"] = None
     dataset = build_module(dataset_cfg, DATASETS)
     logger.info("Dataset contains %s samples.", len(dataset))
 
@@ -341,7 +350,7 @@ def main(args):
         num_workers=cfg.get("num_workers", 4),
         seed=cfg.get("seed", 1024),
         pin_memory=True,
-        pin_memory_device=f"cuda:{accelerator.device}",
+        pin_memory_device=f"cuda:{accelerator.device.index}",
         process_group=get_data_parallel_group(),
         prefetch_factor=cfg.get("prefetch_factor", None),
     )
@@ -352,9 +361,10 @@ def main(args):
         # Need to specify the following to ensure buckets are compatible
         # with seq. parallelism if num_seq_parallel_splits > 1.
         num_seq_parallel_splits=num_seq_parallel_splits,
-        vae_ratios=1,  # vae.patch_size[1:3],
-        model_patch_size=1,  # model.patch_size[1:3],
+        # vae_ratios= vae.patch_size[1:3], default (8, 8)
+        # model_patch_size= model.patch_size[1:3], default (2, 2)
     )
+
     dataloader, datasampler = prepare_dataloader(
         bucket=bucket,
         sampler_cfg=to_container(cfg.sampler),
@@ -362,7 +372,31 @@ def main(args):
     )
     ping_liveness_probe()
 
+    from opensora.utils.monitoring_utils import (
+        Timer,
+        CudaPeakMemoryProfiler,
+        get_profiler_maker,
+        log_model_size,
+    )
+
+    # == init profiler maker ==
+    # Only profile time by default
+    profiler_classes = {"timer": Timer}
+    # By default, do not log timer in order not to disrupt logs.
+    profiler_logger = None
+    if cfg.debug:
+        # Profile memory use when in Debug mode.
+        profiler_classes["memory"] = CudaPeakMemoryProfiler
+        # When debugging, also fill logs.
+        profiler_logger = logger
+    time_memory_profiler_maker = get_profiler_maker(
+        profiler_classes=profiler_classes,
+        logger=profiler_logger,
+        profiler_kwargs={"timer": {"cuda_synchronize": cfg.debug}},
+    )
     # ======================================================
+    # ======================================================
+
     # Prepare models and scheduler
     tokenizer = AutoTokenizer.from_pretrained(
         args.pretrained_model_name_or_path,
@@ -771,21 +805,39 @@ def main(args):
     alphas_cumprod = scheduler.alphas_cumprod.to(
         accelerator.device, dtype=torch.float32
     )
+    start_epoch = start_step = global_step = log_step = step_since_resumed = 0
+    training_time = epoch_startup_time = checkpointing_time = running_loss = 0.0
 
     for epoch in range(first_epoch, args.num_train_epochs):
-        transformer.train()
 
-        for step, batch in enumerate(train_dataloader):
+        with time_memory_profiler_maker("epoch setup") as setup_t:
+            datasampler.set_epoch(epoch)
+            dataloader_iter = iter(dataloader)
+            num_steps_this_epoch = len(dataloader)
+            logger.info(
+                f"Starting epoch {epoch} with {num_steps_this_epoch} steps.\n"
+                f"\tdataloader size = {get_size(dataloader):.2f} GB\n"
+                f"\tdataloader_iter size = {get_size(dataloader_iter):.2f} GB\n"
+                f"\tdatasampler size = {get_size(datasampler):.2f} GB\n"
+            )
+        epoch_startup_time += setup_t["timer"].elapsed_time
+
+        transformer.train()
+        for step, batch in enumerate(dataloader_iter):  # train_dataloader
             models_to_accumulate = [transformer]
             logs = {}
 
             with accelerator.accumulate(models_to_accumulate):
-                videos = batch["videos"].to(accelerator.device, non_blocking=True)
-                prompts = batch["prompts"]
+                # videos = batch["videos"].to(accelerator.device, non_blocking=True)
+                # prompts = batch["prompts"]
+                videos = batch["video"].to(
+                    accelerator.device, torch.bfloat16, non_blocking=True
+                )  # [B, C, F, H, W]
+                prompts = batch["text"]
 
                 # Encode videos
                 if not args.load_tensors:
-                    videos = videos.permute(0, 2, 1, 3, 4)  # [B, C, F, H, W]
+                    # videos = videos.permute(0, 2, 1, 3, 4)  # [B, C, F, H, W]
                     latent_dist = vae.encode(videos).latent_dist
                 else:
                     latent_dist = DiagonalGaussianDistribution(videos)
@@ -858,7 +910,7 @@ def main(args):
                     image_rotary_emb=image_rotary_emb,
                     return_dict=False,
                 )[0]
-
+                embed()
                 model_pred = scheduler.get_velocity(
                     model_output, noisy_model_input, timesteps
                 )

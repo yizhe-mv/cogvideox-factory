@@ -1,3 +1,4 @@
+export PYTHONPATH=../
 export TORCH_LOGS="+dynamo,recompiles,graph_breaks"
 export TORCHDYNAMO_VERBOSE=1
 export WANDB_MODE="offline"
@@ -15,12 +16,12 @@ OPTIMIZERS=("adamw") # ("adamw" "adam")
 MAX_TRAIN_STEPS=("3000")
 
 # Single GPU uncompiled training
-ACCELERATE_CONFIG_FILE="accelerate_configs/deepspeed.yaml"
+ACCELERATE_CONFIG_FILE="cogvideox_factory/accelerate_configs/deepspeed.yaml"
 
 # Absolute path to where the data is located. Make sure to have read the README for how to prepare data.
 # This example assumes you downloaded an already prepared dataset from HF CLI as follows:
 #   huggingface-cli download --repo-type dataset Wild-Heart/Disney-VideoGeneration-Dataset --local-dir /path/to/my/datasets/disney-dataset
-DATA_ROOT="video-dataset-disney"
+DATA_ROOT="cogvideox_factory/video-dataset-disney"
 
 CAPTION_COLUMN="prompt.txt"
 VIDEO_COLUMN="videos.txt"
@@ -35,7 +36,7 @@ for learning_rate in "${LEARNING_RATES[@]}"; do
       for steps in "${MAX_TRAIN_STEPS[@]}"; do
         output_dir="./cogvideox-lora__optimizer_${optimizer}__steps_${steps}__lr-schedule_${lr_schedule}__learning-rate_${learning_rate}/"
 
-        cmd="accelerate launch --config_file $ACCELERATE_CONFIG_FILE training/cogvideox_text_to_video_lora.py \
+        cmd="accelerate launch --config_file $ACCELERATE_CONFIG_FILE cogvideox_factory/training/cogvideox_text_to_video_with_seg.py \
           --pretrained_model_name_or_path $MODEL_PATH \
           --data_root $DATA_ROOT \
           --caption_column $CAPTION_COLUMN \
