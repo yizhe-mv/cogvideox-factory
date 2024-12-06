@@ -12,7 +12,7 @@ pip3 install -U xformers==0.0.28 --index-url https://download.pytorch.org/whl/cu
 # pip install -e ./diffusers
 
 # download or copy the model from huggingface to the model folder
-echo "Copying CogVideoX-5B model to the model folder"
+echo "Copying CogVideoX-5b model to the model folder"
 mkdir -p ~/.cache/huggingface/hub/
 cp -r /data/local-node/mnt/mofs/users/yizhe/huggingface/models--THUDM--CogVideoX-5b ~/.cache/huggingface/hub/
 

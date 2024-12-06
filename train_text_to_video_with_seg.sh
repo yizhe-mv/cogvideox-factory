@@ -13,7 +13,7 @@ export TOKENIZERS_PARALLELISM=false
 LEARNING_RATES=("1e-4")
 LR_SCHEDULES=("cosine_with_restarts")
 OPTIMIZERS=("adamw") # ("adamw" "adam")
-MAX_TRAIN_STEPS=("3000")
+# MAX_TRAIN_STEPS=("3000")
 
 # Single GPU uncompiled training
 ACCELERATE_CONFIG_FILE="cogvideox_factory/accelerate_configs/deepspeed.yaml"
@@ -33,7 +33,6 @@ MODEL_PATH="THUDM/CogVideoX-5b"
 for learning_rate in "${LEARNING_RATES[@]}"; do
   for lr_schedule in "${LR_SCHEDULES[@]}"; do
     for optimizer in "${OPTIMIZERS[@]}"; do
-      for steps in "${MAX_TRAIN_STEPS[@]}"; do
         output_dir="./cogvideox-lora__optimizer_${optimizer}__steps_${steps}__lr-schedule_${lr_schedule}__learning-rate_${learning_rate}/"
 
         cmd="accelerate launch --config_file $ACCELERATE_CONFIG_FILE cogvideox_factory/training/cogvideox_text_to_video_with_seg.py \
@@ -56,9 +55,9 @@ for learning_rate in "${LEARNING_RATES[@]}"; do
           --lora_alpha 128 \
           --mixed_precision bf16 \
           --output_dir $output_dir \
-          --max_num_frames 49 \
           --train_batch_size 1 \
-          --max_train_steps $steps \
+          --num_train_epochs 100 \
+          --max_train_steps 100000 \
           --checkpointing_steps 1000 \
           --gradient_accumulation_steps 1 \
           --gradient_checkpointing \

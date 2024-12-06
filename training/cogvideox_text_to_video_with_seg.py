@@ -278,6 +278,10 @@ def main(args):
         project_config=accelerator_project_config,
         kwargs_handlers=[ddp_kwargs, init_process_group_kwargs],
     )
+    if accelerator.state.deepspeed_plugin:
+        accelerator.state.deepspeed_plugin.deepspeed_config[
+            "train_micro_batch_size_per_gpu"
+        ] = 1
 
     # Disable AMP for MPS.
     if torch.backends.mps.is_available():
@@ -315,7 +319,7 @@ def main(args):
     # ======================================================
     # build dataset and dataloader from opensora
     # ======================================================
-    from opensora.datasets.bucket import Bucket
+    from opensora.datasets.bucket_cogvideox import Bucket
     from opensora.datasets.dataloader import prepare_dataloader
     from opensora.utils.ckpt_utils import ping_liveness_probe
     import opensora.utils.config_utils as cfg_utils
@@ -330,7 +334,9 @@ def main(args):
     cfg.dataset = OmegaConf.load("./configs/model/dataset/datasets_v1.yaml")
     cfg.train_subsets = ["custom18M"]
     cfg.bucket_randomize_n_frames = True
-    cfg.bucket_config = OmegaConf.load("./configs/model/marey.yaml")["bucket_config"]
+    cfg.bucket_config = OmegaConf.load("./configs/model/cogvideox.yaml")[
+        "bucket_config"
+    ]
     cfg.sampler = OmegaConf.load("./configs/base.yaml")["sampler"]
     cfg.debug = False
 
@@ -359,7 +365,7 @@ def main(args):
         bucket_config=cfg.get("bucket_config", None),
         randomize_n_frames=cfg.get("bucket_randomize_n_frames", False),
         # Need to specify the following to ensure buckets are compatible
-        # with seq. parallelism if num_seq_parallel_splits > 1.
+        # with seq. parallelism if num_seq_parallel_splits  > 1.
         num_seq_parallel_splits=num_seq_parallel_splits,
         # vae_ratios= vae.patch_size[1:3], default (8, 8)
         # model_patch_size= model.patch_size[1:3], default (2, 2)
@@ -633,48 +639,14 @@ def main(args):
         offload_gradients=args.offload_gradients,
     )
 
-    # Dataset and DataLoader
-    dataset_init_kwargs = {
-        "data_root": args.data_root,
-        "dataset_file": args.dataset_file,
-        "caption_column": args.caption_column,
-        "video_column": args.video_column,
-        "max_num_frames": args.max_num_frames,
-        "id_token": args.id_token,
-        "height_buckets": args.height_buckets,
-        "width_buckets": args.width_buckets,
-        "frame_buckets": args.frame_buckets,
-        "load_tensors": args.load_tensors,
-        "random_flip": args.random_flip,
-    }
-    if args.video_reshape_mode is None:
-        train_dataset = VideoDatasetWithResizing(**dataset_init_kwargs)
-    else:
-        train_dataset = VideoDatasetWithResizeAndRectangleCrop(
-            video_reshape_mode=args.video_reshape_mode, **dataset_init_kwargs
-        )
-
-    collate_fn = CollateFunction(weight_dtype, args.load_tensors)
-
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=1,
-        sampler=BucketSampler(
-            train_dataset, batch_size=args.train_batch_size, shuffle=True
-        ),
-        collate_fn=collate_fn,
-        num_workers=args.dataloader_num_workers,
-        pin_memory=args.pin_memory,
-    )
-
     # Scheduler and math around the number of training steps.
-    overrode_max_train_steps = False
-    num_update_steps_per_epoch = math.ceil(
-        len(train_dataloader) / args.gradient_accumulation_steps
-    )
-    if args.max_train_steps is None:
-        args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-        overrode_max_train_steps = True
+    # overrode_max_train_steps = False
+    # num_update_steps_per_epoch = math.ceil(
+    #     len(dataloader) / args.gradient_accumulation_steps
+    # )
+    # if args.max_train_steps is None:
+    #     args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
+    #     overrode_max_train_steps = True
 
     if args.use_cpu_offload_optimizer:
         lr_scheduler = None
@@ -703,18 +675,18 @@ def main(args):
             )
 
     # Prepare everything with our `accelerator`.
-    transformer, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        transformer, optimizer, train_dataloader, lr_scheduler
+    transformer, optimizer, lr_scheduler = accelerator.prepare(
+        transformer, optimizer, lr_scheduler
     )
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(
-        len(train_dataloader) / args.gradient_accumulation_steps
-    )
-    if overrode_max_train_steps:
-        args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-    # Afterwards we recalculate our number of training epochs
-    args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
+    # num_update_steps_per_epoch = math.ceil(
+    #     len(dataloader) / args.gradient_accumulation_steps
+    # )
+    # if overrode_max_train_steps:
+    #     args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
+    # # Afterwards we recalculate our number of training epochs
+    # args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
@@ -738,8 +710,6 @@ def main(args):
 
     accelerator.print("***** Running training *****")
     accelerator.print(f"  Num trainable parameters = {num_trainable_parameters}")
-    accelerator.print(f"  Num examples = {len(train_dataset)}")
-    accelerator.print(f"  Num batches each epoch = {len(train_dataloader)}")
     accelerator.print(f"  Num epochs = {args.num_train_epochs}")
     accelerator.print(
         f"  Instantaneous batch size per device = {args.train_batch_size}"
@@ -779,7 +749,7 @@ def main(args):
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
-            first_epoch = global_step // num_update_steps_per_epoch
+            # first_epoch = global_step // num_update_steps_per_epoch
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
@@ -805,12 +775,15 @@ def main(args):
     alphas_cumprod = scheduler.alphas_cumprod.to(
         accelerator.device, dtype=torch.float32
     )
-    start_epoch = start_step = global_step = log_step = step_since_resumed = 0
-    training_time = epoch_startup_time = checkpointing_time = running_loss = 0.0
+    global_step = 0
+    epoch_startup_time = 0.0
 
     for epoch in range(first_epoch, args.num_train_epochs):
 
         with time_memory_profiler_maker("epoch setup") as setup_t:
+            accelerator.print(
+                f"Setting up dataloader for epoch {epoch}, may take a while..."
+            )
             datasampler.set_epoch(epoch)
             dataloader_iter = iter(dataloader)
             num_steps_this_epoch = len(dataloader)
@@ -910,7 +883,7 @@ def main(args):
                     image_rotary_emb=image_rotary_emb,
                     return_dict=False,
                 )[0]
-                embed()
+
                 model_pred = scheduler.get_velocity(
                     model_output, noisy_model_input, timesteps
                 )
