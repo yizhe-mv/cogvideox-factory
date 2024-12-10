@@ -343,7 +343,14 @@ def main(args):
     num_seq_parallel_splits = cfg.get("num_seq_parallel_splits", 1)
 
     logger.info("Building dataset...")
+
+    # VariableVideoTextDatasetWithSegmentation
     # == build dataset ==
+    # replace the data path of custom18M to the segmentation dataset
+    cfg.dataset["type"] = "VariableVideoTextDatasetWithSegmentation"
+    cfg.dataset["data_paths_dict"][
+        "custom18M"
+    ] = "/data/local-node/mnt/mofs/custom_dataset_metadata_segmentation/data.parquet"
     dataset_cfg = cfg_utils.subset_dataset(cfg.dataset, *cfg.train_subsets)
     dataset_cfg["extra_features"] = None
     dataset = build_module(dataset_cfg, DATASETS)
@@ -353,7 +360,7 @@ def main(args):
     dataloader_args = dict(
         dataset=dataset,
         batch_size=cfg.get("batch_size", None),
-        num_workers=cfg.get("num_workers", 4),
+        # num_workers=cfg.get("num_workers", 4),
         seed=cfg.get("seed", 1024),
         pin_memory=True,
         pin_memory_device=f"cuda:{accelerator.device.index}",
@@ -400,6 +407,7 @@ def main(args):
         logger=profiler_logger,
         profiler_kwargs={"timer": {"cuda_synchronize": cfg.debug}},
     )
+
     # ======================================================
     # ======================================================
 
@@ -807,7 +815,8 @@ def main(args):
                     accelerator.device, torch.bfloat16, non_blocking=True
                 )  # [B, C, F, H, W]
                 prompts = batch["text"]
-
+                embed()
+                exit()
                 # Encode videos
                 if not args.load_tensors:
                     # videos = videos.permute(0, 2, 1, 3, 4)  # [B, C, F, H, W]
