@@ -24,6 +24,7 @@ from typing import Any, Dict
 
 import diffusers
 import torch
+import torch.nn as nn
 import transformers
 import wandb
 from accelerate import Accelerator, DistributedType
@@ -251,6 +252,8 @@ class CollateFunction:
 
 
 def main(args):
+    # TODO: move this to the config file
+    args.consistency_weight = 1.0
     if args.report_to == "wandb" and args.hub_token is not None:
         raise ValueError(
             "You cannot use both --report_to=wandb and --hub_token due to a security risk of exposing your token."
@@ -432,6 +435,7 @@ def main(args):
         if "5b" in args.pretrained_model_name_or_path.lower()
         else torch.float16
     )
+    # TODO: move this to the config file
     transformer_config_path = "./CogVideoX-5b-seg-init/config.json"
     transformer_config = OmegaConf.load(transformer_config_path)
     transformer = CogVideoXTransformer3DModel(**transformer_config).to(load_dtype)
@@ -839,6 +843,7 @@ def main(args):
             with accelerator.accumulate(models_to_accumulate):
                 # videos = batch["videos"].to(accelerator.device, non_blocking=True)
                 # prompts = batch["prompts"]
+                # TODO: check if the video and masks are from the same video
                 videos = batch["video"].to(
                     accelerator.device, torch.bfloat16, non_blocking=True
                 )  # [B, C, F, H, W]
@@ -920,6 +925,7 @@ def main(args):
                 # (this is the forward diffusion process)
                 noisy_video_latents = scheduler.add_noise(model_input, noise, timesteps)
                 noisy_model_input = torch.cat([noisy_video_latents, masks], dim=2)
+
                 # Predict the noise residual
                 model_output = transformer(
                     hidden_states=noisy_model_input,
@@ -946,13 +952,14 @@ def main(args):
 
                 target = model_input
 
-                loss = torch.mean(
+                loss_diffusion = torch.mean(
                     (weights * (model_pred - target) ** 2).reshape(batch_size, -1),
                     dim=1,
                 )
-                embed()
-                exit()
-                loss = loss.mean()
+
+                loss_diffusion = loss_diffusion.mean()
+                loss_consistency = nn.MSELoss()(model_orig_output, model_output)
+                loss = loss_diffusion + loss_consistency * args.consistency_weight
                 accelerator.backward(loss)
 
                 if (

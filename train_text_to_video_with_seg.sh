@@ -58,7 +58,7 @@ for learning_rate in "${LEARNING_RATES[@]}"; do
           --train_batch_size 1 \
           --num_train_epochs 100 \
           --max_train_steps 100000 \
-          --checkpointing_steps 1000 \
+          --checkpointing_steps 100000 \
           --gradient_accumulation_steps 1 \
           --gradient_checkpointing \
           --learning_rate $learning_rate \

@@ -4,7 +4,7 @@ pip install -r requirements.txt
 
 pip uninstall apex
 pip uninstall flash-attn
-cd ../ && pip install flash-attn --no-build-isolation && cd cogvideox_factory
+cd ../ && pip install flash-attn --no-build-isolation
 
 # install diffusers from github so we can modify the model architecture
 git clone --branch yizhe/controlhttps://github.com/ContentFly/diffusers
@@ -20,7 +20,7 @@ echo "Copying CogVideoX-5b model to the model folder"
 mkdir -p ~/.cache/huggingface/hub/
 cp -r /data/local-node/mnt/mofs/users/yizhe/huggingface/models--THUDM--CogVideoX-5b ~/.cache/huggingface/hub/
 # for initialization of segmentation model
-cp -r /data/local-node/mnt/mofs/users/yizhe/huggingface/CogVideoX-5b-seg-init ./
+cp -r /data/local-node/mnt/mofs/users/yizhe/huggingface/CogVideoX-5b-seg-init ./cp -r /data/local-node/mnt/mofs/users/yizhe/huggingface/CogVideoX-5b-seg-init ./
 # Optional: install `huggingface_hub` && download toy dataset
 # huggingface-cli download \
 #   --repo-type dataset Wild-Heart/Disney-VideoGeneration-Dataset \
