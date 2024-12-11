@@ -38,6 +38,7 @@ from diffusers import (
     AutoencoderKLCogVideoX,
     CogVideoXDPMScheduler,
     CogVideoXPipeline,
+    CogVideoXImageToVideoPipeline,
     CogVideoXTransformer3DModel,
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
@@ -431,7 +432,23 @@ def main(args):
         if "5b" in args.pretrained_model_name_or_path.lower()
         else torch.float16
     )
-    transformer = CogVideoXTransformer3DModel.from_pretrained(
+    transformer_config_path = "./CogVideoX-5b-seg-init/config.json"
+    transformer_config = OmegaConf.load(transformer_config_path)
+    transformer = CogVideoXTransformer3DModel(**transformer_config).to(load_dtype)
+
+    from safetensors.torch import load_file
+
+    weights_part1 = load_file(
+        "./CogVideoX-5b-seg-init/diffusion_pytorch_model-00001-of-00002.safetensors"
+    )
+    weights_part2 = load_file(
+        "./CogVideoX-5b-seg-init/diffusion_pytorch_model-00002-of-00002.safetensors"
+    )
+    combined_weights = {**weights_part1, **weights_part2}
+    transformer.load_state_dict(combined_weights)
+
+    # the original transformer model for consistency loss
+    transformer_orig = CogVideoXTransformer3DModel.from_pretrained(
         args.pretrained_model_name_or_path,
         subfolder="transformer",
         torch_dtype=load_dtype,
@@ -455,9 +472,10 @@ def main(args):
     if args.enable_tiling:
         vae.enable_tiling()
 
-    # We only train the additional adapter LoRA layers
+    # We only train the additional adapter LoRA layers and the first conv layer of the transformer
     text_encoder.requires_grad_(False)
     transformer.requires_grad_(False)
+    transformer_orig.requires_grad_(False)
     vae.requires_grad_(False)
 
     VAE_SCALING_FACTOR = vae.config.scaling_factor
@@ -494,6 +512,7 @@ def main(args):
 
     text_encoder.to(accelerator.device, dtype=weight_dtype)
     transformer.to(accelerator.device, dtype=weight_dtype)
+    transformer_orig.to(accelerator.device, dtype=weight_dtype)
     vae.to(accelerator.device, dtype=weight_dtype)
 
     if args.gradient_checkpointing:
@@ -506,7 +525,15 @@ def main(args):
         init_lora_weights=True,
         target_modules=["to_k", "to_q", "to_v", "to_out.0"],
     )
+    # Note, add_adapter() will frozen the parameters of the model,
+    # so we need to unfreeze the first conv layer of the transformer after that.
     transformer.add_adapter(transformer_lora_config)
+    for name, param in transformer.named_parameters():
+        if "patch_embed.proj" in name:
+            param.requires_grad = True
+            accelerator.print(
+                f"Layer: {name}, Trainable: {param.requires_grad}, Shape: {param.shape}"
+            )
 
     # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
     def save_model_hook(models, weights, output_dir):
@@ -603,6 +630,7 @@ def main(args):
         # only upcast trainable parameters (LoRA) into fp32
         cast_training_params([transformer], dtype=torch.float32)
 
+    # Note this actually contains lora and the first conv layer.
     transformer_lora_parameters = list(
         filter(lambda p: p.requires_grad, transformer.parameters())
     )
@@ -814,23 +842,31 @@ def main(args):
                 videos = batch["video"].to(
                     accelerator.device, torch.bfloat16, non_blocking=True
                 )  # [B, C, F, H, W]
+                masks = batch["masks"].to(
+                    accelerator.device, torch.bfloat16, non_blocking=True
+                )  # [B, F, C, H, W]
                 prompts = batch["text"]
-                embed()
-                exit()
                 # Encode videos
                 if not args.load_tensors:
                     # videos = videos.permute(0, 2, 1, 3, 4)  # [B, C, F, H, W]
                     latent_dist = vae.encode(videos).latent_dist
+                    latent_dist_masks = vae.encode(masks).latent_dist
                 else:
                     latent_dist = DiagonalGaussianDistribution(videos)
-
+                    latent_dist_masks = DiagonalGaussianDistribution(masks)
                 videos = latent_dist.sample() * VAE_SCALING_FACTOR
                 videos = videos.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
                 videos = videos.to(
                     memory_format=torch.contiguous_format, dtype=weight_dtype
                 )
-                model_input = videos
 
+                masks = latent_dist_masks.sample() * VAE_SCALING_FACTOR
+                masks = masks.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+                masks = masks.to(
+                    memory_format=torch.contiguous_format, dtype=weight_dtype
+                )
+
+                model_input = videos
                 # Encode prompts
                 if not args.load_tensors:
                     prompt_embeds = compute_prompt_embeddings(
@@ -882,8 +918,8 @@ def main(args):
 
                 # Add noise to the model input according to the noise magnitude at each timestep
                 # (this is the forward diffusion process)
-                noisy_model_input = scheduler.add_noise(model_input, noise, timesteps)
-
+                noisy_video_latents = scheduler.add_noise(model_input, noise, timesteps)
+                noisy_model_input = torch.cat([noisy_video_latents, masks], dim=2)
                 # Predict the noise residual
                 model_output = transformer(
                     hidden_states=noisy_model_input,
@@ -892,9 +928,16 @@ def main(args):
                     image_rotary_emb=image_rotary_emb,
                     return_dict=False,
                 )[0]
+                model_orig_output = transformer_orig(
+                    hidden_states=noisy_video_latents,
+                    encoder_hidden_states=prompt_embeds,
+                    timestep=timesteps,
+                    image_rotary_emb=image_rotary_emb,
+                    return_dict=False,
+                )[0]
 
                 model_pred = scheduler.get_velocity(
-                    model_output, noisy_model_input, timesteps
+                    model_output, noisy_video_latents, timesteps
                 )
 
                 weights = 1 / (1 - alphas_cumprod[timesteps])
@@ -907,6 +950,8 @@ def main(args):
                     (weights * (model_pred - target) ** 2).reshape(batch_size, -1),
                     dim=1,
                 )
+                embed()
+                exit()
                 loss = loss.mean()
                 accelerator.backward(loss)
 
